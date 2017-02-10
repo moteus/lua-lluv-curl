@@ -49,8 +49,6 @@ end
 function BasicTask:start(handle)
   local ok, err = handle:setopt{
     url           = self._url;
-    fresh_connect = true;
-    forbid_reuse  = true;
 
     writefunction = function(...)
       self:emit('data', ...)
@@ -202,6 +200,9 @@ function cUrlRequest:perform(url, opt, cb)
     task = BasicTask.new(url, (type(opt) == 'table') and opt)
     cb = (type(opt) == 'function') and opt or cb
     if cb then cb(task) end
+  elseif type(url) == 'function' then
+    task = BasicTask.new()
+    url(task)
   else
     task = url
   end
