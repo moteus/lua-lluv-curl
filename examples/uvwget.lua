@@ -16,22 +16,23 @@ local request = curl.Request{
 
 for i, url in ipairs(arg) do
   local path, file = tostring(i) .. '.download'
-  request:perform(url, {followlocation = true})
-    :on('data', function(_, _, data)
-      file = file or assert(io.open(path, 'wb+'))
-      file:write(data)
+  request:perform(url, {followlocation = true}, function(task) task
+    :on('start', function(_, _, easy)
+      file = assert(io.open(path, 'wb+'))
+      easy:setopt_writefunction(file)
+    end)
+    :on('close', function()
+      if file then file:close() end
     end)
     :on('error', function(_, _, err)
-      if file then file:close() end
       io.stderr:write(url ..  ' - FAIL: ' .. tostring(err) .. '\n')
     end)
-    :on('done', function(_, _, code)
-      if file then file:close() end
+    :on('done', function(_, _, easy)
+      local code = easy:getinfo_response_code()
       io.stdout:write(url ..  ' - DONE: ' .. tostring(code) .. '; Path: ' ..path .. '\n')
     end)
+  end)
   i = i + 1
 end
 
 uv.run()
-
-

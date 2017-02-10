@@ -11,9 +11,15 @@ example from [An Introduction to libuv](http://nikhilm.github.io/uvbook/index.ht
 ```Lua
 local curl = require "lluv.curl"
 
--- Create Request object wich allows up to 10 parallel request
+-- Create Request object
 local request = curl.Request{
+  -- Allow up to 10 parallel requests
   concurent = 10;
+  -- Default options for easy handles
+  defaults = { -- this is valuses used by defualt
+    fresh_connect = true;
+    forbid_reuse  = true;
+  };
 }
 
 for i, url in ipairs(arg) do
@@ -21,22 +27,28 @@ for i, url in ipairs(arg) do
   -- this function actually put reques in queue
   -- and returns special `task` object.
   -- Also it is possible pass any `cURL` options.
-  request:perform(url, {followlocation = true})
-    -- handle input data
-    :on('data', function(_, _, data)
-      file = file or assert(io.open(path, 'wb+'))
-      file:write(data)
+  request:perform(url, {followlocation = true}, function(task) task
+    -- Here we can configure created task object before it will be used
+
+    -- calls after configuration done but before actually start perform
+    :on('start', function(_, _, easy)
+      file = assert(io.open(path, 'wb+'))
+      easy:setopt_writefunction(file)
     end)
-    -- Some error (e.g. SSL fail)
-    :on('error', function(_, _, err)
+    -- calls in any case when task is finish
+    :on('close', function()
       if file then file:close() end
+    end)
+     -- Some error (e.g. SSL fail or user interupted)
+    :on('error', function(_, _, err)
       io.stderr:write(url ..  ' - FAIL: ' .. tostring(err) .. '\n')
     end)
-    -- Success finish
-    :on('done', function(_, _, code)
-      if file then file:close() end
+    -- This means that request done without any error
+    :on('done', function(_, _, easy)
+      local code = easy:getinfo_response_code()
       io.stdout:write(url ..  ' - DONE: ' .. tostring(code) .. '; Path: ' ..path .. '\n')
     end)
+  end)
   i = i + 1
 end
 ```

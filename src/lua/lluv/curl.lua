@@ -47,8 +47,6 @@ function BasicTask:__init(url, opt)
 end
 
 function BasicTask:start(handle)
-  self:emit('configure', handle)
-
   local ok, err = handle:setopt{
     url           = self._url;
     fresh_connect = true;
@@ -71,16 +69,20 @@ function BasicTask:start(handle)
     if not ok then return nil, err end
   end
 
+  self:emit('start', handle)
+
   return true
 end
 
 function BasicTask:close(err, handle)
-  if err then self:emit('error', err)
+  if err then
+    self:emit('error', err)
   elseif not handle then
     self:emit('error', 'interrupted')
   else
-    self:emit('done', handle:getinfo_response_code())
+    self:emit('done', handle)
   end
+  self:emit('close')
 end
 
 end
@@ -122,11 +124,15 @@ function cUrlRequest:__init(options)
 
   options = options or {}
 
-  self._MAX_REQUESTS = options.concurent or 1       -- Number of parallel request
-  self._timer        = uv.timer()
-  self._qtask        = ut.Queue.new() -- wait tasks
-  self._qfree        = ut.Queue.new() -- avaliable easy handles
-  self._qeasy        = {}             -- all easy handles
+  self._MAX_REQUESTS  = options.concurent or 1 -- Number of parallel request
+  self._timer         = uv.timer()
+  self._qtask         = ut.Queue.new()         -- wait tasks
+  self._qfree         = ut.Queue.new()         -- avaliable easy handles
+  self._qeasy         = {}                     -- all easy handles
+  self._easy_defaults = options.defaults or {  -- default options for easy handles
+    fresh_connect = true;
+    forbid_reuse  = true;
+  }
 
   self._multi = curl.multi()
   self._multi:setopt_timerfunction (self._on_curl_timeout, self)
@@ -195,10 +201,7 @@ function cUrlRequest:perform(url, opt, cb)
   if type(url) == 'string' then
     task = BasicTask.new(url, (type(opt) == 'table') and opt)
     cb = (type(opt) == 'function') and opt or cb
-    if cb then
-      task:on('done',  function(_, _, data) cb(nil, data) end)
-      task:on('error', function(_, _, err)  cb(err) end)
-    end
+    if cb then cb(task) end
   else
     task = url
   end
@@ -232,11 +235,17 @@ function cUrlRequest:_proceed_queue()
 
     assert(task == self._qtask:pop())
 
-    local ok, err = task:start(handle)
-    if not ok then
+    local ok, res, err
+    ok, res = handle:setopt( self._easy_defaults )
+    if ok then
+      ok, res, err = pcall(task.start, task, handle)
+    end
+
+    if not (ok and res) then
       handle:reset().data = nil
       self._qfree:push(handle)
-      task:close(err)
+      if not ok then err = res end
+      task:close(res)
     else
       handle.data = {
         task = task
