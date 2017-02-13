@@ -134,7 +134,17 @@ function cUrlRequestsQueue:__init(options)
 
   self._multi = curl.multi()
   self._multi:setopt_timerfunction (self._on_curl_timeout, self)
-  self._multi:setopt_socketfunction(self._on_curl_action,  self)
+
+  if not pcall(
+    self._multi.setopt_socketfunction, self._multi, self._on_curl_action,  self
+  )then
+    -- bug in Lua-cURL <= v0.3.5
+    self._multi:setopt{
+      socketfunction = function(...)
+        return self:_on_curl_action(...)
+      end
+    }
+  end
 
   self._on_libuv_poll = function(poller, err, events)
     self:emit('uv::poll', poller, err, EVENT_NAMES[events] or events)
