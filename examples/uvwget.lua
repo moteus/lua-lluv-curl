@@ -10,13 +10,13 @@ if not arg[1] then
   os.exit(-1)
 end
 
-local request = curl.Request{
+local queue = curl.RequestsQueue{
   concurent = 10;
 }
 
 for i, url in ipairs(arg) do
   local path, file = tostring(i) .. '.download'
-  request:perform(url, {followlocation = true}, function(task) task
+  queue:perform(url, {followlocation = true}, function(request) request
     :on('start', function(_, _, easy)
       file = assert(io.open(path, 'wb+'))
       easy:setopt_writefunction(file)

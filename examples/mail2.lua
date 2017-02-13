@@ -3,33 +3,54 @@ package.path = "..\\src\\lua\\?.lua;" .. package.path
 -- Require lua-sendmail version > 0.1.4
 
 local uv       = require "lluv"
+local ut       = require "lluv.utils"
 local curl     = require "lluv.curl"
 local sendmail = require "sendmail"
 
--- Use basic request based on EventEmitter
+-- Implement special Request class to send email
+local EmailReques = ut.class() do
+
+function EmailReques:__init(opt, cb)
+  self._opt = opt
+  self._cb  = cb or function() end
+  self._msg = nil
+
+  self._opt.engine = 'curl'
+  self._opt.curl   = {async = true}
+
+  return self
+end
+
+function EmailReques:start(handle)
+  self._opt.curl.handle = handle
+
+  local ok, err = sendmail(self._opt)
+  if not ok then return nil, err end
+
+  self._msg = err
+
+  handle:setopt_headerfunction(function(h) self._response = h end)
+
+  return self
+end
+
+function EmailReques:close(err, handle)
+  if (not err) and (not handle) then
+    err = 'interrupted'
+  end
+
+  if err then return self._cb(err) end
+
+  local res  = (type(self._msg.rcpt) == 'table') and #self._msg.rcpt or 1
+  local code = handle:getinfo_response_code()
+  self._cb(nil, res, code, self._response)
+end
+
+end
+
 local function AsyncSendMail(queue, t, cb)
-  queue:perform(function(request)
-    local response, msg request
-    :on('start', function(_,_,handle)
-      t.engine = 'curl'
-      t.curl = {handle = handle, async = true}
-
-      local ok, err = sendmail(t)
-
-      t.engine, t.curl = nil
-
-      if not ok then return nil, err end
-      assert(ok == handle)
-      msg = err
-    end)
-    :on('header', function(_,_,h) response = h end)
-    :on('error', function(_, _, err) cb(err) end)
-    :on('done', function(_, _, easy)
-      local res  = (type(msg.rcpt) == 'table') and #msg.rcpt or 1
-      local code = easy:getinfo_response_code()
-      cb(nil, res, code, response)
-    end)
-  end)
+  local request = EmailReques.new(t, cb)
+  queue:add(request)
 end
 
 local queue = curl.RequestsQueue{

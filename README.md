@@ -12,7 +12,7 @@ example from [An Introduction to libuv](http://nikhilm.github.io/uvbook/index.ht
 local curl = require "lluv.curl"
 
 -- Create Request object
-local request = curl.Request{
+local queue = curl.RequestsQueue{
   -- Allow up to 10 parallel requests
   concurent = 10;
   -- Default options for easy handles
@@ -25,10 +25,10 @@ local request = curl.Request{
 for i, url in ipairs(arg) do
   local path, file = tostring(i) .. '.download'
   -- this function actually put reques in queue
-  -- and returns special `task` object.
+  -- and returns special `request` object.
   -- Also it is possible pass any `cURL` options.
-  request:perform(url, {followlocation = true}, function(task) task
-    -- Here we can configure created task object before it will be used
+  queue:perform(url, {followlocation = true}, function(request) request
+    -- Here we can configure created request object before it will be used
 
     -- calls after configuration done but before actually start perform
     :on('start', function(_, _, easy)

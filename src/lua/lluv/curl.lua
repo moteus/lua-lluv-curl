@@ -35,9 +35,9 @@ local FLAGS = {
   [ uv.READABLE + uv.WRITABLE ] = curl.CSELECT_IN + curl.CSELECT_OUT;
 }
 
-local BasicTask = ut.class(EventEmitter) do
+local BasicRequest = ut.class(EventEmitter) do
 
-function BasicTask:__init(url, opt)
+function BasicRequest:__init(url, opt)
   super(self, '__init')
 
   self._url = url
@@ -46,7 +46,7 @@ function BasicTask:__init(url, opt)
   return self
 end
 
-function BasicTask:start(handle)
+function BasicRequest:start(handle)
   local ok, err = handle:setopt{
     url           = self._url;
 
@@ -72,7 +72,7 @@ function BasicTask:start(handle)
   return true
 end
 
-function BasicTask:close(err, handle)
+function BasicRequest:close(err, handle)
   if err then
     self:emit('error', err)
   elseif not handle then
@@ -115,9 +115,9 @@ end
 
 end
 
-local cUrlRequest = ut.class(EventEmitter) do
+local cUrlRequestsQueue = ut.class(EventEmitter) do
 
-function cUrlRequest:__init(options)
+function cUrlRequestsQueue:__init(options)
   super(self, '__init', {wildcard = true, delimiter = '::'})
 
   options = options or {}
@@ -159,7 +159,7 @@ function cUrlRequest:__init(options)
   return self
 end
 
-function cUrlRequest:close(err)
+function cUrlRequestsQueue:close(err)
   for i, easy in ipairs(self._qeasy) do
     self._multi:remove_handle(easy)
 
@@ -188,20 +188,23 @@ function cUrlRequest:close(err)
   self:emit('close')
 end
 
-function cUrlRequest:add(task)
+function cUrlRequestsQueue:add(task)
   self._qtask:push(task)
+
+  self:emit('enqueue', task)
+
   self:_proceed_queue()
   return task
 end
 
-function cUrlRequest:perform(url, opt, cb)
+function cUrlRequestsQueue:perform(url, opt, cb)
   local task
   if type(url) == 'string' then
-    task = BasicTask.new(url, (type(opt) == 'table') and opt)
+    task = BasicRequest.new(url, (type(opt) == 'table') and opt)
     cb = (type(opt) == 'function') and opt or cb
     if cb then cb(task) end
   elseif type(url) == 'function' then
-    task = BasicTask.new()
+    task = BasicRequest.new()
     url(task)
   else
     task = url
@@ -210,7 +213,7 @@ function cUrlRequest:perform(url, opt, cb)
   return self:add(task)
 end
 
-function cUrlRequest:_next_handle()
+function cUrlRequestsQueue:_next_handle()
   if not self._qfree:empty() then
     return assert(self._qfree:pop())
   end
@@ -225,16 +228,21 @@ function cUrlRequest:_next_handle()
   return handle
 end
 
-function cUrlRequest:_proceed_queue()
+function cUrlRequestsQueue:_proceed_queue()
   while true do
     if self._qtask:empty() then return end
 
-    local task = assert(self._qtask:peek())
+    local task, handle = assert(self._qtask:peek())
 
-    local handle = self:_next_handle()
+    --! @todo allows task provide its own handle
+    -- e.g. like `handle = task:handle()`
+
+    handle = self:_next_handle()
     if not handle then return end
 
     assert(task == self._qtask:pop())
+
+    self:emit('dequeue', task)
 
     local ok, res, err
     ok, res = handle:setopt( self._easy_defaults )
@@ -256,7 +264,7 @@ function cUrlRequest:_proceed_queue()
   end
 end
 
-function cUrlRequest:_on_curl_timeout(ms)
+function cUrlRequestsQueue:_on_curl_timeout(ms)
   self:emit("curl::timeout", ms)
 
   if not self._timer:active() then
@@ -266,7 +274,7 @@ function cUrlRequest:_on_curl_timeout(ms)
   end
 end
 
-function cUrlRequest:_on_curl_action(easy, fd, action)
+function cUrlRequestsQueue:_on_curl_action(easy, fd, action)
   local ok, err = pcall(function()
     self:emit("curl::socket", easy, fd, ACTION_NAMES[action] or action)
 
@@ -290,7 +298,7 @@ function cUrlRequest:_on_curl_action(easy, fd, action)
   if not ok then uv.defer(function() error(err) end) end
 end
 
-function cUrlRequest:_curl_check_multi_info()
+function cUrlRequestsQueue:_curl_check_multi_info()
   local multi = self._multi
   while true do
     local easy, ok, err = multi:info_read(true)
@@ -321,5 +329,5 @@ end
 end
 
 return {
-  Request = cUrlRequest.new
+  RequestsQueue = cUrlRequestsQueue.new
 }
