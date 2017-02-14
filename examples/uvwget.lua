@@ -32,7 +32,6 @@ for i, url in ipairs(arg) do
       io.stdout:write(url ..  ' - DONE: ' .. tostring(code) .. '; Path: ' ..path .. '\n')
     end)
   end)
-  i = i + 1
 end
 
 uv.run()
