@@ -35,6 +35,177 @@ local FLAGS = {
   [ uv.READABLE + uv.WRITABLE ] = curl.CSELECT_IN + curl.CSELECT_OUT;
 }
 
+-------------------------------------------------------------------
+local List = ut.class() do
+
+function List:reset()
+  self._first = 0
+  self._last  = -1
+  self._t     = {}
+  return self
+end
+
+List.__init = List.reset
+
+function List:push_front(v)
+  assert(v ~= nil)
+  local first = self._first - 1
+  self._first, self._t[first] = first, v
+  return self
+end
+
+function List:push_back(v)
+  assert(v ~= nil)
+  local last = self._last + 1
+  self._last, self._t[last] = last, v
+  return self
+end
+
+function List:peek_front()
+  return self._t[self._first]
+end
+
+function List:peek_back()
+  return self._t[self._last]
+end
+
+function List:pop_front()
+  local first = self._first
+  if first > self._last then return end
+
+  local value = self._t[first]
+  self._first, self._t[first] = first + 1
+
+  return value
+end
+
+function List:pop_back()
+  local last = self._last
+  if self._first > last then return end
+
+  local value = self._t[last]
+  self._last, self._t[last] = last - 1
+
+  return value
+end
+
+function List:size()
+  return self._last - self._first + 1
+end
+
+function List:empty()
+  return self._first > self._last
+end
+
+function List:find(fn, pos)
+  pos = pos or 1
+  if type(fn) == "function" then
+    for i = self._first + pos - 1, self._last do
+      local n = i - self._first + 1
+      if fn(self._t[i]) then
+        return n, self._t[i]
+      end
+    end
+  else
+    for i = self._first + pos - 1, self._last do
+      local n = i - self._first + 1
+      if fn == self._t[i] then
+        return n, self._t[i]
+      end
+    end
+  end
+end
+
+function List:remove(pos)
+  local s = self:size()
+
+  if pos < 0 then pos = s + pos + 1 end
+
+  if pos <= 0 or pos > s then return end
+
+  local offset = self._first + pos - 1
+
+  local v = self._t[offset]
+
+  if pos < s / 2 then
+    for i = offset, self._first, -1 do
+      self._t[i] = self._t[i-1]
+    end
+    self._first = self._first + 1
+  else
+    for i = offset, self._last do
+      self._t[i] = self._t[i+1]
+    end
+    self._last = self._last - 1
+  end
+
+  return v
+end
+
+function List:insert(pos, v)
+  assert(v ~= nil)
+
+  local s = self:size()
+
+  if pos < 0 then pos = s + pos + 1 end
+
+  if pos <= 0 or pos > (s + 1) then return end
+
+  local offset = self._first + pos - 1
+
+  if pos < s / 2 then
+    for i = self._first, offset do
+      self._t[i-1] = self._t[i]
+    end
+    self._t[offset - 1] = v
+    self._first = self._first - 1
+  else
+    for i = self._last, offset, - 1 do
+      self._t[i + 1] = self._t[i]
+    end
+    self._t[offset] = v
+    self._last = self._last + 1
+  end
+
+  return self
+end
+
+end
+-------------------------------------------------------------------
+
+-------------------------------------------------------------------
+local Queue = ut.class() do
+
+function Queue:__init()
+  self._q = List.new()
+  return self
+end
+
+function Queue:reset()        self._q:reset()      return self end
+
+function Queue:push(v)        self._q:push_back(v) return self end
+
+function Queue:pop()   return self._q:pop_front()              end
+
+function Queue:peek()  return self._q:peek_front()             end
+
+function Queue:size()  return self._q:size()                   end
+
+function Queue:empty() return self._q:empty()                  end
+
+function Queue:exists(v)
+  return self._q:find(v)
+end
+
+function Queue:remove_value(v)
+  local i = self._q:find(v)
+  if i then return self._q:remove(i) end
+end
+
+end
+-------------------------------------------------------------------
+
+-------------------------------------------------------------------
 local BasicRequest = ut.class(EventEmitter) do
 
 function BasicRequest:__init(url, opt)
@@ -84,7 +255,9 @@ function BasicRequest:close(err, handle)
 end
 
 end
+-------------------------------------------------------------------
 
+-------------------------------------------------------------------
 local Context = ut.class() do
 
 function Context:__init(fd)
@@ -114,7 +287,9 @@ function Context:fileno()
 end
 
 end
+-------------------------------------------------------------------
 
+-------------------------------------------------------------------
 local cUrlRequestsQueue = ut.class(EventEmitter) do
 
 function cUrlRequestsQueue:__init(options)
@@ -124,7 +299,7 @@ function cUrlRequestsQueue:__init(options)
 
   self._MAX_REQUESTS  = options.concurent or 1 -- Number of parallel request
   self._timer         = uv.timer()
-  self._qtask         = ut.Queue.new()         -- wait tasks
+  self._qtask         = Queue.new()            -- wait tasks
   self._qfree         = ut.Queue.new()         -- avaliable easy handles
   self._qeasy         = {}                     -- all easy handles
   self._easy_defaults = options.defaults or {  -- default options for easy handles
@@ -223,6 +398,34 @@ function cUrlRequestsQueue:perform(url, opt, cb)
   return self:add(task)
 end
 
+function cUrlRequestsQueue:cancel(task, err)
+  -- check either task is started
+  for i, easy in ipairs(self._qeasy) do
+    if easy.data and easy.data.task == task then
+      self._multi:remove_handle(easy)
+
+      local context = easy.data.context
+      if context then context:close() end
+      easy.data.context = nil
+
+      task:close(err, easy)
+      easy:reset()
+      easy.data = nil
+
+      self._qfree:push(easy)
+      self:_proceed_queue()
+      return
+    end
+  end
+
+  -- remove unstarted task
+  local t = self._qtask:remove_value(task)
+  if t then
+    assert(t == task)
+    t:close(err)
+  end
+end
+
 function cUrlRequestsQueue:_next_handle()
   if not self._qfree:empty() then
     return assert(self._qfree:pop())
@@ -261,7 +464,8 @@ function cUrlRequestsQueue:_proceed_queue()
     end
 
     if not (ok and res) then
-      handle:reset().data = nil
+      handle:reset()
+      handle.data = nil
       self._qfree:push(handle)
       if not ok then err = res end
       task:close(res)
@@ -329,7 +533,8 @@ function cUrlRequestsQueue:_curl_check_multi_info()
     if ok then err = nil end
     task:close(err, easy)
 
-    easy:reset().data = nil
+    easy:reset()
+    easy.data = nil
     self._qfree:push(easy)
   end
 
@@ -337,6 +542,7 @@ function cUrlRequestsQueue:_curl_check_multi_info()
 end
 
 end
+-------------------------------------------------------------------
 
 return {
   RequestsQueue = cUrlRequestsQueue.new
