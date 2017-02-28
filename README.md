@@ -3,7 +3,7 @@ Make asyncronus requests using libuv and libcurl
 
 Project is in experimental stage. I am not sure about good API.
 
-### Exaples
+### Examples
 
 Implementation of [uvwget](http://nikhilm.github.io/uvbook/utilities.html#external-i-o-with-polling)
 example from [An Introduction to libuv](http://nikhilm.github.io/uvbook/index.html) book.
