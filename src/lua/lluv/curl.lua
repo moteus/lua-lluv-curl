@@ -35,6 +35,8 @@ local FLAGS = {
   [ uv.READABLE + uv.WRITABLE ] = curl.CSELECT_IN + curl.CSELECT_OUT;
 }
 
+local ECANCELED = uv.error(uv.ERROR_UV, uv.ECANCELED)
+
 -------------------------------------------------------------------
 local List = ut.class() do
 
@@ -399,6 +401,8 @@ function cUrlRequestsQueue:perform(url, opt, cb)
 end
 
 function cUrlRequestsQueue:cancel(task, err)
+  err = err or ECANCELED
+
   -- check either task is started
   for i, easy in ipairs(self._qeasy) do
     if easy.data and easy.data.task == task then
