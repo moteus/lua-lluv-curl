@@ -336,7 +336,7 @@ function cUrlRequestsQueue:__init(options)
   end
 
   self._on_libuv_timeout = function(timer)
-    self:emit('uv::timeout', poller, err, EVENT_NAMES[events] or events)
+    self:emit('uv::timeout')
 
     self._multi:socket_action()
 
@@ -461,8 +461,7 @@ function cUrlRequestsQueue:_proceed_queue()
 
     self:emit('dequeue', task)
 
-    local ok, res, err
-    ok, res = handle:setopt( self._easy_defaults )
+    local ok, res, err = handle:setopt( self._easy_defaults )
     if ok then
       ok, res, err = pcall(task.start, task, handle)
     end
@@ -472,7 +471,7 @@ function cUrlRequestsQueue:_proceed_queue()
       handle.data = nil
       self._qfree:push(handle)
       if not ok then err = res end
-      task:close(res)
+      task:close(err)
     else
       handle.data = {
         task = task

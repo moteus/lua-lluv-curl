@@ -8,9 +8,9 @@ local curl     = require "lluv.curl"
 local sendmail = require "sendmail"
 
 -- Implement special Request class to send email
-local EmailReques = ut.class() do
+local EmailRequest = ut.class() do
 
-function EmailReques:__init(opt, cb)
+function EmailRequest:__init(opt, cb)
   self._opt = opt
   self._cb  = cb or function() end
   self._msg = nil
@@ -21,7 +21,7 @@ function EmailReques:__init(opt, cb)
   return self
 end
 
-function EmailReques:start(handle)
+function EmailRequest:start(handle)
   self._opt.curl.handle = handle
 
   local ok, err = sendmail(self._opt)
@@ -34,7 +34,7 @@ function EmailReques:start(handle)
   return self
 end
 
-function EmailReques:close(err, handle)
+function EmailRequest:close(err, handle)
   if (not err) and (not handle) then
     err = 'interrupted'
   end
@@ -49,7 +49,7 @@ end
 end
 
 local function AsyncSendMail(queue, t, cb)
-  local request = EmailReques.new(t, cb)
+  local request = EmailRequest.new(t, cb)
   queue:add(request)
 end
 
