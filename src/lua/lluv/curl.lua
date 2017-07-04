@@ -484,11 +484,17 @@ end
 function cUrlRequestsQueue:_on_curl_timeout(ms)
   self:emit("curl::timeout", ms)
 
-  if not self._timer:active() then
-    if ms <= 0 then ms = 1 end
+  -- If libcurl gets called before the timeout expiry time 
+  -- because of socket activity, it may very well update the 
+  -- timeout value again before it expires
 
-    self._timer:start(ms, 0, self._on_libuv_timeout)
+  if ms <= 0 then ms = 1 end
+
+  if self._timer:active() then
+    self._timer:stop()
   end
+
+  self._timer:start(ms, 0, self._on_libuv_timeout)
 end
 
 function cUrlRequestsQueue:_on_curl_action(easy, fd, action)
