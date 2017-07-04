@@ -490,10 +490,6 @@ function cUrlRequestsQueue:_on_curl_timeout(ms)
 
   if ms <= 0 then ms = 1 end
 
-  if self._timer:active() then
-    self._timer:stop()
-  end
-
   self._timer:start(ms, 0, self._on_libuv_timeout)
 end
 
