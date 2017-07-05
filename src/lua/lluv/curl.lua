@@ -445,18 +445,10 @@ function cUrlRequestsQueue:_next_handle()
 end
 
 function cUrlRequestsQueue:_proceed_queue()
-  while true do
-    if self._qtask:empty() then return end
-
-    local task, handle = assert(self._qtask:peek())
-
-    --! @todo allows task provide its own handle
-    -- e.g. like `handle = task:handle()`
-
-    handle = self:_next_handle()
+  while not self._qtask:empty() do
+    local handle = self:_next_handle()
     if not handle then return end
-
-    assert(task == self._qtask:pop())
+    local task = assert(self._qtask:pop())
 
     self:emit('dequeue', task)
 
