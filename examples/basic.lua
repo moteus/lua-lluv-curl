@@ -1,5 +1,5 @@
 io.stdout:setvbuf'no';io.stderr:setvbuf'no';
-package.path = "..\\src\\lua\\?.lua;" .. package.path
+package.path = "../src/lua/?.lua;" .. package.path
 
 local uv   = require "lluv"
 local curl = require "lluv.curl"

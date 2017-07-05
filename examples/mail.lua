@@ -1,4 +1,5 @@
-package.path = "..\\src\\lua\\?.lua;" .. package.path
+io.stdout:setvbuf'no';io.stderr:setvbuf'no';
+package.path = "../src/lua/?.lua;" .. package.path
 
 -- Require lua-sendmail version > 0.1.4
 
