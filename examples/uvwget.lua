@@ -10,7 +10,7 @@ if not arg[1] then
   os.exit(-1)
 end
 
-local queue = curl.RequestsQueue{
+local queue = curl.queue{
   concurent = 10;
 }
 

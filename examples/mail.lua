@@ -32,7 +32,7 @@ local function AsyncSendMail(queue, t, cb)
   end)
 end
 
-local queue = curl.RequestsQueue{
+local queue = curl.queue{
   concurent = 10;
   defaults  = {};
 }

@@ -896,7 +896,7 @@ local cURL = setmetatable({
   _COPYRIGHT    = _COPYRIGHT;
 
   multi         = cUrlMulti.new;
-  multi_queue   = cUrlMultiQueue.new;
+  queue         = cUrlMultiQueue.new;
   RequestsQueue = cUrlRequestsQueue.new
 }, {__index = _curl_index})
 

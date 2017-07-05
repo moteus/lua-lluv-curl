@@ -53,7 +53,7 @@ local function AsyncSendMail(queue, t, cb)
   queue:add(request)
 end
 
-local queue = curl.RequestsQueue{
+local queue = curl.queue{
   concurent = 10;
   defaults  = {};
 }

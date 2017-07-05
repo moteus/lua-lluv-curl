@@ -3,6 +3,10 @@ Make asyncronus requests using libuv and libcurl
 
 Project is in experimental stage. I am not sure about good API.
 
+This module provide async version of curl multi class.
+Also module implement async request queue class which allows
+control number of parallel requests.
+
 ### Examples
 
 #### Basic asyncronus request using easy handle
@@ -28,8 +32,8 @@ uv.run()
 ```Lua
 local curl = require "lluv.curl"
 
--- Create Request object
-local queue = curl.RequestsQueue{
+-- Create request queue object
+local queue = curl.queue{
   -- Allow up to 10 parallel requests
   concurent = 10;
   -- Default options for easy handles
