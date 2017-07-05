@@ -24,8 +24,7 @@ end)
 uv.run()
 ```
 
-#### Implementation of [uvwget](http://nikhilm.github.io/uvbook/utilities.html#external-i-o-with-polling)
-example from [An Introduction to libuv](http://nikhilm.github.io/uvbook/index.html) book.
+#### Implementation of [uvwget](http://nikhilm.github.io/uvbook/utilities.html#external-i-o-with-polling) example from [An Introduction to libuv](http://nikhilm.github.io/uvbook/index.html) book
 ```Lua
 local curl = require "lluv.curl"
 
