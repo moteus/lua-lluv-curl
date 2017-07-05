@@ -1,12 +1,26 @@
-local curl         = require "cURL"
+local curl         = require "cURL.safe"
 local uv           = require "lluv"
 local ut           = require "lluv.utils"
 local EventEmitter = require "EventEmitter".EventEmitter
 
-local function super(self, method, ...)
-  if self.__base[method] then
-    return self.__base[method](self, ...)
+local _VERSION   = "0.1.0-dev"
+local _NAME      = "lluv-curl"
+local _LICENSE   = "MIT"
+local _COPYRIGHT = "Copyright (c) 2017 Alexey Melnichuk"
+
+local function super(class, self, method, ...)
+  if class.__base and class.__base[method] then
+    return class.__base[method](self, ...)
   end
+  if method == '__init' then return self end
+end
+
+local function Super(class)
+  return function(...) return super(class, ...) end
+end
+
+local function bind(self, fn)
+  return function(...) return fn(self, ...) end
 end
 
 local ACTION_NAMES = {
@@ -209,6 +223,7 @@ end
 
 -------------------------------------------------------------------
 local BasicRequest = ut.class(EventEmitter) do
+local super = Super(BasicRequest)
 
 function BasicRequest:__init(url, opt)
   super(self, '__init')
@@ -265,7 +280,7 @@ local Context = ut.class() do
 function Context:__init(fd)
   self._fd        = assert(fd)
   self._poll      = uv.poll_socket(fd)
-  self._poll.data = {context = self}
+  self._poll.data = self
 
   assert(self._poll:fileno() == fd)
 
@@ -293,6 +308,7 @@ end
 
 -------------------------------------------------------------------
 local cUrlRequestsQueue = ut.class(EventEmitter) do
+local super = Super(cUrlRequestsQueue)
 
 function cUrlRequestsQueue:__init(options)
   super(self, '__init', {wildcard = true, delimiter = '::'})
@@ -323,25 +339,8 @@ function cUrlRequestsQueue:__init(options)
     }
   end
 
-  self._on_libuv_poll = function(poller, err, events)
-    self:emit('uv::poll', poller, err, EVENT_NAMES[events] or events)
-
-    local flags = assert(FLAGS[events], ("unknown event:" .. events))
-
-    local context = poller.data.context
-
-    self._multi:socket_action(context:fileno(), flags)
-
-    self:_curl_check_multi_info()
-  end
-
-  self._on_libuv_timeout = function(timer)
-    self:emit('uv::timeout')
-
-    self._multi:socket_action()
-
-    self:_curl_check_multi_info()
-  end
+  self._on_libuv_poll_proxy    = bind(self, self._on_libuv_poll)
+  self._on_libuv_timeout_proxy = bind(self, self._on_libuv_timeout)
 
   return self
 end
@@ -490,7 +489,7 @@ function cUrlRequestsQueue:_on_curl_timeout(ms)
 
   if ms <= 0 then ms = 1 end
 
-  self._timer:start(ms, 0, self._on_libuv_timeout)
+  self._timer:start(ms, 0, self._on_libuv_timeout_proxy)
 end
 
 function cUrlRequestsQueue:_on_curl_action(easy, fd, action)
@@ -505,7 +504,7 @@ function cUrlRequestsQueue:_on_curl_action(easy, fd, action)
         context = Context.new(fd)
         easy.data.context = context
       end
-      context:poll(flag, self._on_libuv_poll)
+      context:poll(flag, self._on_libuv_poll_proxy)
     elseif action == curl.POLL_REMOVE then
       if context then
         easy.data.context = nil
@@ -515,6 +514,26 @@ function cUrlRequestsQueue:_on_curl_action(easy, fd, action)
   end)
 
   if not ok then uv.defer(function() error(err) end) end
+end
+
+function cUrlRequestsQueue:_on_libuv_poll(poller, err, events)
+  self:emit('uv::poll', poller, err, EVENT_NAMES[events] or events)
+
+  local flags = assert(FLAGS[events], ("unknown event:" .. events))
+
+  local context = poller.data
+
+  self._multi:socket_action(context:fileno(), flags)
+
+  self:_curl_check_multi_info()
+end
+
+function cUrlRequestsQueue:_on_libuv_timeout(timer)
+  self:emit('uv::timeout')
+
+  self._multi:socket_action()
+
+  self:_curl_check_multi_info()
 end
 
 function cUrlRequestsQueue:_curl_check_multi_info()
@@ -549,6 +568,344 @@ end
 end
 -------------------------------------------------------------------
 
-return {
+-------------------------------------------------------------------
+local cUrlMulti = ut.class() do
+
+function cUrlMulti:__init(options)
+  options = options or {}
+
+  self._qeasy = {}
+  self._timer = uv.timer()
+  self._multi = curl.multi()
+  self._multi:setopt_timerfunction (self._on_curl_timeout, self)
+
+  if not pcall(
+    self._multi.setopt_socketfunction, self._multi, self._on_curl_action,  self
+  )then
+    -- bug in Lua-cURL <= v0.3.5
+    self._multi:setopt{
+      socketfunction = function(...)
+        return self:_on_curl_action(...)
+      end
+    }
+  end
+
+  self._on_libuv_poll_proxy    = bind(self, self._on_libuv_poll)
+  self._on_libuv_timeout_proxy = bind(self, self._on_libuv_timeout)
+
+  return self
+end
+
+function cUrlMulti:_remove_all(err)
+  for easy, data in pairs(self._qeasy) do
+    self._multi:remove_handle(easy)
+
+    local context = data.context
+    if context then context:close() end
+    local callback = data.callback
+    if callback then callback(easy, err or ECANCELED) end
+  end
+
+  return self
+end
+
+function cUrlMulti:close(err)
+  self:_remove_all(err)
+
+  self._multi:close()
+  self._timer:close()
+
+  self._timer, self._qeasy, self._multi = nil
+
+  self:emit('close')
+end
+
+function cUrlMulti:add_handle(easy, callback)
+  assert(not self._qeasy[easy])
+
+  local ok, err = self._multi:add_handle(easy)
+  if not ok then return nil, err end
+
+  self._qeasy[easy] = {
+    callback = callback;
+  }
+
+  return self
+end
+
+function cUrlMulti:remove_handle(easy)
+  self._qeasy[easy] = nil
+  self._multi:remove_handle(easy)
+
+  return self
+end
+
+function cUrlMulti:_on_curl_timeout(ms)
+  if ms <= 0 then ms = 1 end
+
+  self._timer:start(ms, 0, self._on_libuv_timeout_proxy)
+end
+
+function cUrlMulti:_on_curl_action(easy, fd, action)
+  local ok, err = pcall(function()
+    local data = self._qeasy[easy]
+    local context = data.context
+
+    local flag = POLL_IO_FLAGS[action]
+    if flag then
+      if not context then
+        context = Context.new(fd)
+        data.context = context
+      end
+      context:poll(flag, self._on_libuv_poll_proxy)
+    elseif action == curl.POLL_REMOVE then
+      if context then
+        data.context = nil
+        context:close()
+      end
+    end
+  end)
+
+  if not ok then uv.defer(function() error(err) end) end
+end
+
+function cUrlMulti:_on_libuv_poll(poller, err, events)
+  local flags = assert(FLAGS[events], ("unknown event:" .. events))
+
+  local context = poller.data
+
+  self._multi:socket_action(context:fileno(), flags)
+
+  self:_curl_check_multi_info()
+end
+
+function cUrlMulti:_on_libuv_timeout(timer)
+  self._multi:socket_action()
+
+  self:_curl_check_multi_info()
+end
+
+function cUrlMulti:_curl_check_multi_info()
+  local multi = self._multi
+
+  while true do
+    local easy, ok, err = multi:info_read(true)
+
+    if not easy then
+      self:_remove_all(err)
+      return
+    end
+
+    if easy == 0 then break end
+
+    local data = self._qeasy[easy]
+    self._qeasy[easy] = nil
+    if data.context then
+      data.context:close()
+    end
+
+    if data.callback then
+      if ok then err = nil end
+      data.callback(easy, err)
+    end
+  end
+end
+
+function cUrlMulti:setopt(...)
+  local ok, err = self._multi:setopt(...)
+  if ok == self._multi then ok = self end
+  return ok, err
+end
+
+-- implement all setopt_xxx functions
+for item in pairs(require "lcurl.safe") do
+  local opt = string.match(item, "^OPT_MULTI_(.+)$")
+  if opt and opt ~= 'SOCKETFUNCTION' and opt ~= 'TIMERFUNCTION' then
+    local fn_name = 'setopt_' .. string.lower(opt)
+    cUrlMulti[fn_name] = function(self, ...)
+      local ok, err = self._multi[fn_name](self._multi, ...)
+      if ok == self._multi then ok = self end
+      return ok, err
+    end
+  end
+end
+
+end
+-------------------------------------------------------------------
+
+-------------------------------------------------------------------
+local cUrlMultiQueue = ut.class(EventEmitter) do
+local super = Super(cUrlMultiQueue)
+
+function cUrlMultiQueue:__init(options)
+  self = super(self, '__init', {wildcard = true, delimiter = '::'})
+
+  options = options or {}
+
+  self._multi         = cUrlMulti.new()
+  self._MAX_REQUESTS  = options.concurent or 1 -- Number of parallel request
+  self._qtask         = Queue.new()            -- wait tasks
+  self._qfree         = ut.Queue.new()         -- avaliable easy handles
+  self._qeasy         = {}                     -- all easy handles
+  self._easy_defaults = options.defaults or {  -- default options for easy handles
+    fresh_connect = true;
+    forbid_reuse  = true;
+  }
+
+  self._on_curl_done_proxy = bind(self, self._on_curl_done)
+  return self
+end
+
+function cUrlMultiQueue:close(err)
+  for i, easy in ipairs(self._qeasy) do
+    self._multi:remove_handle(easy)
+
+    local task = easy.data
+    if task then task:close(err, easy) end
+
+    easy:close()
+  end
+
+  while true do
+    local task = self._qtask:pop()
+    if not task then break end
+    task:close(err)
+  end
+
+  self._multi:close()
+
+  self._qeasy, self._multi, self._qtask, self._qfree = nil
+
+  self:emit('close')
+end
+
+function cUrlMultiQueue:add(task)
+  self._qtask:push(task)
+
+  self:emit('enqueue', task)
+
+  self:_proceed_queue()
+  return task
+end
+
+function cUrlMultiQueue:perform(url, opt, cb)
+  local task
+  if type(url) == 'string' then
+    task = BasicRequest.new(url, (type(opt) == 'table') and opt)
+    cb = (type(opt) == 'function') and opt or cb
+    if cb then cb(task) end
+  elseif type(url) == 'function' then
+    task = BasicRequest.new()
+    url(task)
+  else
+    task = url
+  end
+
+  return self:add(task)
+end
+
+function cUrlMultiQueue:cancel(task, err)
+  err = err or ECANCELED
+
+  -- check either task is started
+  for i, easy in ipairs(self._qeasy) do
+    if easy.data == task then
+      self._multi:remove_handle(easy)
+
+      task:close(err, easy)
+      easy:reset()
+      easy.data = nil
+
+      self._qfree:push(easy)
+      self:_proceed_queue()
+      return
+    end
+  end
+
+  -- remove unstarted task
+  local t = self._qtask:remove_value(task)
+  if t then
+    assert(t == task)
+    t:close(err)
+  end
+end
+
+function cUrlMultiQueue:_next_handle()
+  if not self._qfree:empty() then
+    return assert(self._qfree:pop())
+  end
+
+  if #self._qeasy >= self._MAX_REQUESTS then
+    return
+  end
+
+  local handle = assert(curl.easy())
+  self._qeasy[#self._qeasy + 1] = handle
+
+  return handle
+end
+
+function cUrlMultiQueue:_proceed_queue()
+  self._proceed_queue_progress = false
+
+  while not self._qtask:empty() do
+    local handle = self:_next_handle()
+    if not handle then return end
+    local task = self._qtask:pop()
+
+    self:emit('dequeue', task)
+
+    local ok, res, err = handle:setopt( self._easy_defaults )
+    if ok then
+      ok, res, err = pcall(task.start, task, handle)
+    end
+
+    if ok and res then
+      handle.data = task
+      self._multi:add_handle(handle, self._on_curl_done_proxy)
+    else
+      handle:reset()
+      self._qfree:push(handle)
+      task:close(err)
+    end
+  end
+end
+
+function cUrlMultiQueue:_on_curl_done(easy, err)
+  if not self._proceed_queue_progress then
+    self._proceed_queue_progress = true
+    uv.defer(self._proceed_queue, self)
+  end
+
+  local task = easy.data
+
+  task:close(err, easy)
+
+  easy:reset()
+  easy.data = nil
+  self._qfree:push(easy)
+end
+
+end
+-------------------------------------------------------------------
+
+local function _curl_index(module, key)
+  local v = curl[key]
+  if v then
+    module[key] = v
+  end
+  return v
+end
+
+local cURL = setmetatable({
+  _VERSION      = _VERSION;
+  _NAME         = _NAME;
+  _LICENSE      = _LICENSE;
+  _COPYRIGHT    = _COPYRIGHT;
+
+  multi         = cUrlMulti.new;
+  multi_queue   = cUrlMultiQueue.new;
   RequestsQueue = cUrlRequestsQueue.new
-}
+}, {__index = _curl_index})
+
+return cURL

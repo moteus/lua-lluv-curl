@@ -5,9 +5,27 @@ Project is in experimental stage. I am not sure about good API.
 
 ### Examples
 
-Implementation of [uvwget](http://nikhilm.github.io/uvbook/utilities.html#external-i-o-with-polling)
-example from [An Introduction to libuv](http://nikhilm.github.io/uvbook/index.html) book.
+#### Basic asyncronus request using easy handle
+```Lua
+local uv   = require "lluv"
+local curl = require "lluv.curl"
 
+local easy = curl.easy{
+  url = "http://example.com";
+  writefunction = io.write;
+}
+
+local multi = curl.multi()
+
+multi:add_handle(easy, function(easy, err)
+  print("Done:", err or easy:getinfo_response_code())
+end)
+
+uv.run()
+```
+
+#### Implementation of [uvwget](http://nikhilm.github.io/uvbook/utilities.html#external-i-o-with-polling)
+example from [An Introduction to libuv](http://nikhilm.github.io/uvbook/index.html) book.
 ```Lua
 local curl = require "lluv.curl"
 
