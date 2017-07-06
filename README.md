@@ -1,8 +1,6 @@
 # lua-lluv-curl
 Make asyncronus requests using libuv and libcurl
 
-Project is in experimental stage. I am not sure about good API.
-
 This module provide async version of curl multi class.
 Also module implement async request queue class which allows
 control number of parallel requests.
