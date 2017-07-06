@@ -23,6 +23,11 @@ local function bind(self, fn)
   return function(...) return fn(self, ...) end
 end
 
+local function hash_id(str)
+  local id = string.match(str, "%((.-)%)") or string.match(str, ': (%x+)$')
+  return id
+end
+
 local ACTION_NAMES = {
   [curl.POLL_IN     ] = "POLL_IN";
   [curl.POLL_INOUT  ] = "POLL_INOUT";
@@ -332,11 +337,7 @@ function cUrlRequestsQueue:__init(options)
     self._multi.setopt_socketfunction, self._multi, self._on_curl_action,  self
   )then
     -- bug in Lua-cURL <= v0.3.5
-    self._multi:setopt{
-      socketfunction = function(...)
-        return self:_on_curl_action(...)
-      end
-    }
+    self._multi:setopt{ socketfunction = bind(self, self._on_curl_action) }
   end
 
   self._on_libuv_poll_proxy    = bind(self, self._on_libuv_poll)
@@ -575,11 +576,7 @@ function cUrlMulti:__init(options)
     self._multi.setopt_socketfunction, self._multi, self._on_curl_action,  self
   )then
     -- bug in Lua-cURL <= v0.3.5
-    self._multi:setopt{
-      socketfunction = function(...)
-        return self:_on_curl_action(...)
-      end
-    }
+    self._multi:setopt{ socketfunction = bind(self, self._on_curl_action) }
   end
 
   self._on_libuv_poll_proxy    = bind(self, self._on_libuv_poll)
@@ -720,6 +717,11 @@ for item in pairs(require "lcurl.safe") do
       return ok, err
     end
   end
+end
+
+function cUrlMulti:__tostring()
+  local id = hash_id(tostring(self._multi:handle()))
+  return string.format("%s %s (%s)", _NAME, 'Multi', id)
 end
 
 end
@@ -876,6 +878,11 @@ function cUrlMultiQueue:_on_curl_done(easy, err)
   easy:reset()
   easy.data = nil
   self._qfree:push(easy)
+end
+
+function cUrlMultiQueue:__tostring()
+  local id = hash_id(tostring(self._multi))
+  return string.format("%s %s (%s)", _NAME, 'Queue', id)
 end
 
 end
