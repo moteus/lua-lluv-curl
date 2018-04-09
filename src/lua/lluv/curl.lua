@@ -605,8 +605,6 @@ function cUrlMulti:close(err)
   self._timer:close()
 
   self._timer, self._qeasy, self._multi = nil
-
-  self:emit('close')
 end
 
 function cUrlMulti:add_handle(easy, callback)
