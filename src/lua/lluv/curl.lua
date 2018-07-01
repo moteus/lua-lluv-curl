@@ -40,6 +40,10 @@ local function hash_id(str)
   return id
 end
 
+local function weak_ptr(val)
+  return setmetatable({value = val},{__mode = 'v'})
+end
+
 local ACTION_NAMES = {
   [curl.POLL_IN     ] = "POLL_IN";
   [curl.POLL_INOUT  ] = "POLL_INOUT";
@@ -576,19 +580,30 @@ end
 -------------------------------------------------------------------
 local cUrlMulti = ut.class() do
 
+local function on_curl_timeout(ptr, ms)
+  return ptr.value:_on_curl_timeout(ms)
+end
+
+local function on_curl_action(ptr, easy, fd, action)
+  return ptr.value:_on_curl_action(easy, fd, action)
+end
+
 function cUrlMulti:__init(options)
   options = options or {}
 
   self._qeasy = {}
   self._timer = uv.timer()
   self._multi = curl.multi()
-  self._multi:setopt_timerfunction (self._on_curl_timeout, self)
+
+  local pself = weak_ptr(self)
+
+  self._multi:setopt_timerfunction (on_curl_timeout, pself)
 
   if not pcall(
-    self._multi.setopt_socketfunction, self._multi, self._on_curl_action,  self
+    self._multi.setopt_socketfunction, self._multi, on_curl_action, pself
   )then
     -- bug in Lua-cURL <= v0.3.5
-    self._multi:setopt{ socketfunction = bind(self, self._on_curl_action) }
+    self._multi:setopt{ socketfunction = bind(pself, on_curl_action) }
   end
 
   self._on_libuv_poll_proxy    = bind(self, self._on_libuv_poll)
