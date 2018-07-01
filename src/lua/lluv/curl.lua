@@ -15,7 +15,7 @@ local uv           = require "lluv"
 local ut           = require "lluv.utils"
 local EventEmitter = require "EventEmitter".EventEmitter
 
-local _VERSION   = "0.1.1"
+local _VERSION   = "0.1.1-dev"
 local _NAME      = "lluv-curl"
 local _LICENSE   = "MIT"
 local _COPYRIGHT = "Copyright (c) 2017-2018 Alexey Melnichuk"
