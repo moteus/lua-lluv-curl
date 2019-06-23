@@ -255,19 +255,21 @@ function BasicRequest:__init(url, opt)
   return self
 end
 
+function BasicRequest:write(...)
+  self:emit('data', ...)
+  return true
+end
+
+function BasicRequest:header(...)
+  self:emit('header', ...)
+  return true
+end
+
 function BasicRequest:start(handle)
   local ok, err = handle:setopt{
-    url           = self._url;
-
-    writefunction = function(...)
-      self:emit('data', ...)
-      return true
-    end;
-
-    headerfunction = function(...)
-      self:emit('header', ...)
-      return true
-    end;
+    url            = self._url;
+    writefunction  = self;
+    headerfunction = self;
   }
   if not ok then return nil, err end
 
@@ -501,28 +503,30 @@ function cUrlRequestsQueue:_on_curl_timeout(ms)
   self._timer:start(ms, 0, self._on_libuv_timeout_proxy)
 end
 
-function cUrlRequestsQueue:_on_curl_action(easy, fd, action)
-  local ok, err = pcall(function()
-    self:emit("curl::socket", easy, fd, ACTION_NAMES[action] or action)
+local function on_curl_action(self, easy, fd, action)
+  self:emit("curl::socket", easy, fd, ACTION_NAMES[action] or action)
 
-    local context = easy.data.context
+  local context = easy.data.context
 
-    local flag = POLL_IO_FLAGS[action]
-    if flag then
-      if not context then
-        context = Context.new(fd)
-        easy.data.context = context
-      end
-      context:poll(flag, self._on_libuv_poll_proxy)
-    elseif action == curl.POLL_REMOVE then
-      if context then
-        easy.data.context = nil
-        context:close()
-      end
+  local flag = POLL_IO_FLAGS[action]
+  if flag then
+    if not context then
+      context = Context.new(fd)
+      easy.data.context = context
     end
-  end)
+    context:poll(flag, self._on_libuv_poll_proxy)
+  elseif action == curl.POLL_REMOVE then
+    if context then
+      easy.data.context = nil
+      context:close()
+    end
+  end
+end
 
-  if not ok then uv.defer(function() error(err) end) end
+function cUrlRequestsQueue:_on_curl_action(easy, fd, action)
+  local ok, err = pcall(on_curl_action, self, easy, fd, action)
+
+  if not ok then uv.defer(error, err) end
 end
 
 function cUrlRequestsQueue:_on_libuv_poll(poller, err, events)
@@ -660,27 +664,29 @@ function cUrlMulti:_on_curl_timeout(ms)
   self._timer:start(ms, 0, self._on_libuv_timeout_proxy)
 end
 
-function cUrlMulti:_on_curl_action(easy, fd, action)
-  local ok, err = pcall(function()
-    local data = self._qeasy[easy]
-    local context = data.context
+local function on_curl_action(self, easy, fd, action)
+  local data = self._qeasy[easy]
+  local context = data.context
 
-    local flag = POLL_IO_FLAGS[action]
-    if flag then
-      if not context then
-        context = Context.new(fd)
-        data.context = context
-      end
-      context:poll(flag, self._on_libuv_poll_proxy)
-    elseif action == curl.POLL_REMOVE then
-      if context then
-        data.context = nil
-        context:close()
-      end
+  local flag = POLL_IO_FLAGS[action]
+  if flag then
+    if not context then
+      context = Context.new(fd)
+      data.context = context
     end
-  end)
+    context:poll(flag, self._on_libuv_poll_proxy)
+  elseif action == curl.POLL_REMOVE then
+    if context then
+      data.context = nil
+      context:close()
+    end
+  end
+end
 
-  if not ok then uv.defer(function() error(err) end) end
+function cUrlMulti:_on_curl_action(easy, fd, action)
+  local ok, err = pcall(on_curl_action, self, easy, fd, action)
+
+  if not ok then uv.defer(error, err) end
 end
 
 function cUrlMulti:_on_libuv_poll(poller, err, events)
