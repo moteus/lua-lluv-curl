@@ -2,7 +2,7 @@
 --
 --  Author: Alexey Melnichuk <alexeymelnichuck@gmail.com>
 --
---  Copyright (C) 2017-2018 Alexey Melnichuk <alexeymelnichuck@gmail.com>
+--  Copyright (C) 2017-2019 Alexey Melnichuk <alexeymelnichuck@gmail.com>
 --
 --  Licensed according to the included 'LICENSE' document
 --
@@ -15,10 +15,10 @@ local uv           = require "lluv"
 local ut           = require "lluv.utils"
 local EventEmitter = require "EventEmitter".EventEmitter
 
-local _VERSION   = "0.1.1-dev"
+local _VERSION   = "0.1.2"
 local _NAME      = "lluv-curl"
 local _LICENSE   = "MIT"
-local _COPYRIGHT = "Copyright (c) 2017-2018 Alexey Melnichuk"
+local _COPYRIGHT = "Copyright (c) 2017-2019 Alexey Melnichuk"
 
 local function super(class, self, method, ...)
   if class.__base and class.__base[method] then
